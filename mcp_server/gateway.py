@@ -1235,6 +1235,88 @@ async def reindex(
         raise HTTPException(500, f"Reindexing failed: {str(e)}")
 
 
+@app.get("/api/v1/impact-analysis")
+async def analyze_symbol_impact(
+    entity_id: int,
+    max_depth: int = 2,
+    current_user: User = Depends(require_permission(Permission.READ)),
+) -> Dict[str, Any]:
+    """
+    Analyze the impact of changing a symbol.
+    
+    Returns what functions/classes would be affected if this symbol changes.
+    Useful for refactoring analysis.
+    
+    Args:
+        entity_id: ID of the symbol to analyze
+        max_depth: How deep to traverse the dependency graph (1-5, default 2)
+        
+    Returns:
+        Dictionary with impact analysis results
+        
+    Example:
+        GET /api/v1/impact-analysis?entity_id=123&max_depth=2
+        
+        Response:
+        {
+            "entity_id": 123,
+            "direct_dependents": [
+                {
+                    "source_entity_id": 456,
+                    "source_name": "caller_func",
+                    "source_file": "/path/to/file.py",
+                    "relationship_type": "calls",
+                    "confidence_score": 1.0
+                }
+            ],
+            "indirect_dependents": [...],
+            "affected_files": ["/path/to/file1.py", "/path/to/file2.py"],
+            "total_impact": 15,
+            "max_depth": 2
+        }
+    """
+    if sqlite_store is None:
+        logger.error("Impact analysis requested but SQLite store not ready")
+        raise HTTPException(503, "Storage not ready")
+    
+    try:
+        # Validate max_depth
+        if max_depth < 1 or max_depth > 5:
+            raise HTTPException(400, "max_depth must be between 1 and 5")
+        
+        # Initialize relationship tracker
+        from .storage.relationship_tracker import RelationshipTracker
+        
+        tracker = RelationshipTracker(sqlite_store.db_path)
+        
+        # Perform impact analysis
+        logger.info(f"Analyzing impact for entity {entity_id} with max_depth={max_depth}")
+        impact = tracker.get_symbol_impact(entity_id, max_depth=max_depth)
+        
+        # Convert to response format
+        result = {
+            "entity_id": impact.symbol_id,
+            "direct_dependents": impact.direct_dependents,
+            "indirect_dependents": impact.indirect_dependents,
+            "affected_files": sorted(list(impact.affected_files)),
+            "total_impact": impact.total_impact,
+            "max_depth": max_depth,
+        }
+        
+        logger.info(
+            f"Impact analysis complete: {impact.total_impact} affected symbols, "
+            f"{len(impact.affected_files)} affected files"
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Impact analysis failed: {e}", exc_info=True)
+        raise HTTPException(500, f"Impact analysis failed: {str(e)}")
+
+
 @app.post("/plugins/{plugin_name}/reload")
 async def reload_plugin(
     plugin_name: str, current_user: User = Depends(require_role(UserRole.ADMIN))

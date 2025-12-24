@@ -13,6 +13,7 @@ from ...plugin_base import (
     SearchResult,
     SymbolDef,
 )
+from ...storage.relationship_tracker import RelationshipTracker
 from ...storage.sqlite_store import SQLiteStore
 from ...utils.fuzzy_indexer import FuzzyIndexer
 from ...utils.treesitter_wrapper import TreeSitterWrapper
@@ -26,12 +27,15 @@ class Plugin(IPlugin):
         self._indexer = FuzzyIndexer(sqlite_store=sqlite_store)
         self._sqlite_store = sqlite_store
         self._repository_id = None
+        self._relationship_tracker = None
 
         # Create or get repository if SQLite is enabled
         if self._sqlite_store:
             self._repository_id = self._sqlite_store.create_repository(
                 str(Path.cwd()), Path.cwd().name, {"language": "python"}
             )
+            # Initialize relationship tracker
+            self._relationship_tracker = RelationshipTracker(self._sqlite_store.db_path)
 
         self._preindex()
 
@@ -71,6 +75,10 @@ class Plugin(IPlugin):
                 size=len(content),
                 hash=file_hash,
             )
+            
+            # Clear old relationships for this file before re-indexing
+            if self._relationship_tracker and file_id:
+                self._relationship_tracker.clear_relationships_for_file(str(path))
 
         symbols: list[dict] = []
         for child in root.named_children:
