@@ -1,0 +1,133 @@
+# Docker Compose for HTTP MCP Server
+# Provides MCP protocol over HTTP using Server-Sent Events (SSE)
+version: '3.8'
+
+services:
+  # HTTP MCP Server
+  http-mcp-server:
+    build:
+      context: ../..
+      dockerfile: docker/dockerfiles/Dockerfile.http-mcp
+    container_name: code-index-http-mcp
+    restart: unless-stopped
+    ports:
+      - "${MCP_HTTP_PORT:-8001}:8001"
+    volumes:
+      # Mount workspace for indexing (read-only for security)
+      - ${MCP_WORKSPACE:-./}:/workspace:ro
+      # Data persistence
+      - mcp-data:/app/data
+      # Logs
+      - mcp-logs:/app/logs
+    environment:
+      # Core settings
+      - PYTHONPATH=/app
+      - MCP_WORKSPACE_ROOT=/workspace
+      - DATABASE_URL=sqlite:///./data/code_index.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MCP_HTTP_PORT=8001
+      - MCP_HTTP_HOST=0.0.0.0
+      
+      # MCP Configuration
+      - MCP_USE_SIMPLE_DISPATCHER=${MCP_USE_SIMPLE_DISPATCHER:-false}
+      - MCP_ENABLE_MULTI_PATH=${MCP_ENABLE_MULTI_PATH:-true}
+      
+      # Semantic search (optional - requires API key)
+      - VOYAGE_AI_API_KEY=${VOYAGE_AI_API_KEY:-}
+      - SEMANTIC_SEARCH_ENABLED=${SEMANTIC_SEARCH_ENABLED:-false}
+      - SEMANTIC_EMBEDDING_MODEL=${SEMANTIC_EMBEDDING_MODEL:-voyage-code-3}
+      
+      # CORS Configuration
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      
+      # Security (optional)
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: code-index-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - mcp-network
+    profiles:
+      - with-cache
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Optional: Qdrant for semantic search
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: code-index-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    networks:
+      - mcp-network
+    profiles:
+      - with-semantic
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: code-index-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx-certs:/etc/nginx/certs:ro
+    networks:
+      - mcp-network
+    depends_on:
+      - http-mcp-server
+    profiles:
+      - with-proxy
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mcp-data:
+    driver: local
+  mcp-logs:
+    driver: local
+  redis-data:
+    driver: local
+  qdrant-data:
+    driver: local
+  nginx-certs:
+    driver: local
+
+networks:
+  mcp-network:
+    driver: bridge

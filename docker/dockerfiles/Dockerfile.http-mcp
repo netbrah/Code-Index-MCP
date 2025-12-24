@@ -1,0 +1,61 @@
+# Dockerfile for HTTP MCP Server
+# Provides MCP protocol over HTTP using Server-Sent Events (SSE)
+FROM python:3.12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    curl \
+    libcurl4-openssl-dev \
+    libffi-dev \
+    libssl-dev \
+    python3-dev \
+    sqlite3 \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files first for better caching
+COPY requirements-core.txt requirements-core.txt
+COPY requirements.txt requirements.txt
+COPY pyproject.toml pyproject.toml
+COPY setup.py* .
+
+# Upgrade pip and install Python dependencies
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements-core.txt && \
+    pip install --no-cache-dir fastapi uvicorn[standard] mcp sse-starlette httpx
+
+# Copy application code
+COPY mcp_server/ ./mcp_server/
+COPY plugins.yaml .
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/logs /workspace
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV MCP_WORKSPACE_ROOT=/workspace
+ENV DATABASE_URL=sqlite:///./data/code_index.db
+ENV MCP_HTTP_PORT=8001
+ENV MCP_HTTP_HOST=0.0.0.0
+
+# Create a non-root user for security
+RUN useradd -m -s /bin/bash mcp && \
+    chown -R mcp:mcp /app /workspace
+
+# Switch to non-root user
+USER mcp
+
+# Expose HTTP MCP port
+EXPOSE 8001
+
+# Health check for HTTP MCP server
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8001/health || exit 1
+
+# Run the HTTP MCP server
+CMD ["python", "-m", "mcp_server.http_mcp_server"]
