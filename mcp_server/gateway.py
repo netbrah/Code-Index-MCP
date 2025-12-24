@@ -1698,6 +1698,188 @@ async def optimize_search_indexes(
         raise HTTPException(500, f"Failed to optimize indexes: {str(e)}")
 
 
+# Relationship tracking endpoints
+
+
+@app.get("/relationships/callers")
+async def find_callers(
+    symbol: str,
+    limit: int = 50,
+    current_user: User = Depends(require_permission(Permission.READ)),
+) -> Dict[str, Any]:
+    """
+    Find all functions/methods that call the specified symbol.
+
+    Args:
+        symbol: Symbol name to find callers for
+        limit: Maximum number of results (default: 50, max: 100)
+        current_user: Authenticated user
+
+    Returns:
+        Dictionary with callers list and metadata
+    """
+    if sqlite_store is None:
+        raise HTTPException(503, "SQLite store not ready")
+
+    try:
+        from .storage.relationship_tracker import RelationshipTracker
+
+        tracker = RelationshipTracker(sqlite_store)
+        
+        # Enforce maximum limit
+        limit = min(limit, 100)
+        
+        callers = tracker.find_callers(symbol, limit=limit)
+
+        return {
+            "symbol": symbol,
+            "callers": [
+                {
+                    "symbol": caller.symbol,
+                    "file": caller.file,
+                    "line": caller.line,
+                    "relationship_type": caller.relationship_type,
+                    "confidence": caller.confidence,
+                }
+                for caller in callers
+            ],
+            "count": len(callers),
+            "limit": limit,
+        }
+    except Exception as e:
+        logger.error(f"Error finding callers for '{symbol}': {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to find callers: {str(e)}")
+
+
+@app.get("/relationships/impact")
+async def analyze_impact(
+    symbol: str,
+    max_depth: int = 2,
+    current_user: User = Depends(require_permission(Permission.READ)),
+) -> Dict[str, Any]:
+    """
+    Analyze the impact of changing a symbol.
+
+    Args:
+        symbol: Symbol name to analyze
+        max_depth: Maximum depth for indirect callers (default: 2, max: 5)
+        current_user: Authenticated user
+
+    Returns:
+        Impact analysis with direct/indirect callers and affected files
+    """
+    if sqlite_store is None:
+        raise HTTPException(503, "SQLite store not ready")
+
+    try:
+        from .storage.relationship_tracker import RelationshipTracker
+
+        tracker = RelationshipTracker(sqlite_store)
+        
+        # Enforce maximum depth
+        max_depth = min(max_depth, 5)
+        
+        analysis = tracker.get_symbol_impact(symbol, max_depth=max_depth)
+
+        return {
+            "symbol": analysis.symbol,
+            "direct_callers": [
+                {
+                    "symbol": caller.symbol,
+                    "file": caller.file,
+                    "line": caller.line,
+                    "confidence": caller.confidence,
+                }
+                for caller in analysis.direct_callers
+            ],
+            "indirect_callers": [
+                {
+                    "symbol": caller.symbol,
+                    "file": caller.file,
+                    "line": caller.line,
+                    "depth": caller.depth,
+                    "confidence": caller.confidence,
+                }
+                for caller in analysis.indirect_callers
+            ],
+            "affected_files": sorted(list(analysis.affected_files)),
+            "total_impact": analysis.total_impact,
+            "max_depth": max_depth,
+        }
+    except Exception as e:
+        logger.error(f"Error analyzing impact for '{symbol}': {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to analyze impact: {str(e)}")
+
+
+@app.get("/relationships/circular-dependencies")
+async def find_circular_dependencies(
+    current_user: User = Depends(require_permission(Permission.READ)),
+) -> Dict[str, Any]:
+    """
+    Find circular import dependencies in the codebase.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        List of circular dependency chains
+    """
+    if sqlite_store is None:
+        raise HTTPException(503, "SQLite store not ready")
+
+    try:
+        from .storage.relationship_tracker import RelationshipTracker
+
+        tracker = RelationshipTracker(sqlite_store)
+        cycles = tracker.find_circular_dependencies()
+
+        return {
+            "circular_dependencies": [
+                {
+                    "cycle": cycle,
+                    "length": len(cycle),
+                }
+                for cycle in cycles
+            ],
+            "count": len(cycles),
+        }
+    except Exception as e:
+        logger.error(f"Error finding circular dependencies: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to find circular dependencies: {str(e)}")
+
+
+@app.get("/relationships/stats")
+async def get_relationship_stats(
+    current_user: User = Depends(require_permission(Permission.READ)),
+) -> Dict[str, Any]:
+    """
+    Get statistics about stored relationships.
+
+    Args:
+        current_user: Authenticated user
+
+    Returns:
+        Relationship statistics by type
+    """
+    if sqlite_store is None:
+        raise HTTPException(503, "SQLite store not ready")
+
+    try:
+        from .storage.relationship_tracker import RelationshipTracker
+
+        tracker = RelationshipTracker(sqlite_store)
+        stats = tracker.get_relationship_stats()
+
+        return {
+            "statistics": stats,
+            "total_relationships": stats.get("total_code_relationships", 0)
+            + stats.get("total_file_relationships", 0),
+        }
+    except Exception as e:
+        logger.error(f"Error getting relationship stats: {e}", exc_info=True)
+        raise HTTPException(500, f"Failed to get relationship stats: {str(e)}")
+
+
 @app.get("/search/term/{term}/stats")
 async def get_term_statistics(
     term: str, current_user: User = Depends(require_permission(Permission.READ))

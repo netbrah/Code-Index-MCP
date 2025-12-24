@@ -359,6 +359,43 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_moves_old_path ON file_moves(old_relative_path);
             CREATE INDEX IF NOT EXISTS idx_moves_new_path ON file_moves(new_relative_path);
 
+            -- Code Relationships (for call graphs and relationship tracking)
+            CREATE TABLE IF NOT EXISTS code_relationships (
+                id INTEGER PRIMARY KEY,
+                from_symbol TEXT NOT NULL,
+                to_symbol TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                from_file TEXT NOT NULL,
+                to_file TEXT,
+                line INTEGER,
+                confidence TEXT DEFAULT 'CERTAIN',
+                metadata JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CHECK(relationship_type IN ('CALLS', 'MAY_CALL', 'IMPORTS', 'USES', 'INHERITS', 'IMPLEMENTS', 'DEFINES', 'REFERENCES'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_relationships_from_symbol ON code_relationships(from_symbol);
+            CREATE INDEX IF NOT EXISTS idx_relationships_to_symbol ON code_relationships(to_symbol);
+            CREATE INDEX IF NOT EXISTS idx_relationships_from_file ON code_relationships(from_file);
+            CREATE INDEX IF NOT EXISTS idx_relationships_type ON code_relationships(relationship_type);
+            CREATE INDEX IF NOT EXISTS idx_relationships_combined ON code_relationships(from_symbol, relationship_type);
+
+            -- File Relationships (for import tracking and circular dependency detection)
+            CREATE TABLE IF NOT EXISTS file_relationships (
+                id INTEGER PRIMARY KEY,
+                from_file TEXT NOT NULL,
+                to_file TEXT NOT NULL,
+                relationship_type TEXT NOT NULL,
+                line INTEGER,
+                alias TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CHECK(relationship_type IN ('IMPORTS', 'INCLUDES', 'REQUIRES'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_file_relationships_from ON file_relationships(from_file);
+            CREATE INDEX IF NOT EXISTS idx_file_relationships_to ON file_relationships(to_file);
+            CREATE INDEX IF NOT EXISTS idx_file_relationships_type ON file_relationships(relationship_type);
+
             -- Insert initial index configuration
             INSERT OR IGNORE INTO index_config (config_key, config_value, description) VALUES
                 ('embedding_model', 'voyage-code-3', 'Current embedding model used for vector search'),
