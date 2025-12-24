@@ -114,7 +114,31 @@ Key directories:
 
 ## 🚀 Quick Start
 
-### 🎯 Automatic Setup for Claude Code/Desktop (Recommended)
+### 🎯 HTTP MCP Server (New! - Recommended for Remote Access)
+
+Use MCP over HTTP with Server-Sent Events (SSE) for remote access, cloud deployments, and multi-user scenarios:
+
+```bash
+# Quick start with interactive configuration
+./scripts/quick-start-http-mcp.sh
+
+# Or manual start
+docker-compose -f docker-compose.http-mcp.yml up -d
+
+# Access at http://localhost:8001
+curl http://localhost:8001/health
+```
+
+**Benefits:**
+- ✅ Remote MCP server access via HTTP
+- ✅ Works with Claude Code and any MCP client
+- ✅ Container orchestration ready (Kubernetes, Docker Swarm)
+- ✅ Multi-user support with authentication
+- ✅ Perfect for cloud deployments
+
+See [HTTP MCP Docker Guide](docs/HTTP_MCP_DOCKER_GUIDE.md) for detailed setup and configuration.
+
+### 🎯 Automatic Setup for Claude Code/Desktop (STDIO-based)
 ```bash
 # Auto-configures MCP for your environment
 ./scripts/setup-mcp-json.sh
