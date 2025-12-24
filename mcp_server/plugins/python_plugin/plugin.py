@@ -123,6 +123,9 @@ class Plugin(IPlugin):
                 # Extract class inheritance
                 if self._relationship_tracker:
                     self._extract_class_inheritance(child, content, name, str(path))
+                    
+                    # Extract methods from this class and process their calls
+                    self._extract_methods_from_class(child, content, str(path))
 
             # Store symbol in SQLite if available
             if self._sqlite_store and file_id:
@@ -242,6 +245,24 @@ class Plugin(IPlugin):
                                 confidence="CERTAIN",
                             )
                         )
+
+    # ------------------------------------------------------------------
+    def _extract_methods_from_class(
+        self, class_node, content: str, file_path: str
+    ) -> None:
+        """Extract methods from a class and process their calls."""
+        # Find the class body
+        for child in class_node.named_children:
+            if child.type == "block":
+                # Iterate through methods in the class
+                for method_node in child.named_children:
+                    if method_node.type == "function_definition":
+                        # Get method name
+                        name_node = method_node.child_by_field_name("name")
+                        if name_node:
+                            method_name = content[name_node.start_byte : name_node.end_byte]
+                            # Extract calls from this method
+                            self._extract_function_calls(method_node, content, method_name, file_path)
 
     # ------------------------------------------------------------------
     def getDefinition(self, symbol: str) -> SymbolDef | None:
